@@ -1,0 +1,330 @@
+---
+title: "maps"
+author: "Denver Link"
+date: "2024-05-03"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+#library
+```{r}
+library(tidyverse)
+library(sf)
+library(patchwork)
+```
+
+#data
+```{r}
+#signal crayfish sites
+sites <- read_csv(file.path("D:", "Shared drives", "Hansen Lab", "RESEARCH PROJECTS", "Signal crayfish rapid response", "Data", "sites_lat_lon_signal_crayfish.csv")) %>% 
+  mutate(dow = as.character(dow),
+         month = month(date),
+         site_2 = case_when(month <= 5 ~ paste0(site, "_1"),
+                            month == 6 ~ paste0(site, "_2"),
+                            month == 7 ~ paste0(site, "_3"),
+                            month == 10 ~ paste0(site, "_4"),
+                            TRUE ~ site))
+
+
+#lake shapes
+crs <- st_crs("EPSG:4326")
+
+MNlakes <- readRDS("data/mndow_lakes_sf_allDataUntransformed.rds") %>% 
+  mutate(dow = as.character(dowlknum)) 
+MNlakes <- st_transform(MNlakes, crs)
+
+#eDNA
+edna <- read_csv(file.path("D:", "Shared drives", "Hansen Lab", "RESEARCH PROJECTS", "Signal crayfish rapid response", "Data", "eDNA", "eDNA_collection.csv")) %>% 
+  left_join(sites,
+            by = c("site", "date", "lake_name"),
+            suffix = c("_edna", "_site"))
+
+#trapping
+trap <- read_csv(file.path("D:", "Shared drives", "Hansen Lab", "RESEARCH PROJECTS", "Signal crayfish rapid response", "Data", "Trapping", "signal_crayfish_trapping.csv")) %>% 
+  left_join(sites, 
+            by = c("site", "date_set" = "date", "lake_name"),
+            suffix = c("_trap", "_site")) 
+```
+
+#maps
+```{r}
+lakesites <- sites %>% 
+  filter(!is.na(lat)) %>%  #don't have coordinates from the DNR so they are removed here - could grab centroid
+  filter(edna == "y") %>% 
+  st_as_sf(coords = c("lon", "lat")) 
+lakesites <- st_set_crs(lakesites, crs)
+
+#getting data into workable format
+lakegeom_edna <- MNlakes %>% 
+  filter(dow %in% c(lakesites$dow))
+lakegeom_edna <- st_set_crs(lakegeom_edna, crs)
+
+
+lakes <- ggplot() +
+  geom_sf(data = lakegeom_edna, fill = "#4fc3f7") +
+  geom_sf(data = lakesites) +
+  theme_void()
+lakes
+
+lake_centroids <- st_centroid(lakegeom_edna)
+
+#eDNA 
+edna_all <- ggplot(data = lakesites) +
+  geom_sf(data = lakegeom_edna, fill = "#4fc3f7") +
+  geom_sf(data = lakesites %>% 
+            filter(edna == "y")) +
+  geom_text_repel(data = lake_centroids, aes(x = st_coordinates(geometry)[, 1], y =  st_coordinates(geometry)[, 2],label = pw_basin_n),
+                  force_pull = 0.01) +
+  theme_void() +
+  ggtitle("eDNA") +
+  theme(plot.title = element_text(hjust = 0.5))
+edna_all
+ggsave("edna_sites.png", bg = "white", width = 11, height = 7, dpi = 600)
+
+edna_winona <- ggplot(data = lakesites) +
+  geom_sf(data = lakegeom_edna %>% 
+            filter(pw_basin_n == "Winona"), fill = "aquamarine") +
+  geom_sf(data = lakesites %>% 
+            filter(edna == "y" & lake_name == "winona")) +
+  theme_void() +
+  ggtitle("Winona") +
+  theme(plot.title = element_text(hjust = 0.5))
+edna_winona
+
+edna_agnes <- ggplot(data = lakesites) +
+  geom_sf(data = lakegeom_edna %>% 
+            filter(pw_basin_n == "Agnes"), fill = "aquamarine") +
+  geom_sf(data = lakesites %>% 
+            filter(edna == "y" & lake_name == "agnes")) +
+  theme_void() +
+  ggtitle("Agnes") +
+  theme(plot.title = element_text(hjust = 0.5))
+edna_agnes
+
+edna_henry <- ggplot(data = lakesites) +
+  geom_sf(data = lakegeom_edna %>% 
+            filter(pw_basin_n == "Henry"), fill = "aquamarine") +
+  geom_sf(data = lakesites %>% 
+            filter(edna == "y" & lake_name == "henry")) +
+  theme_void() +
+  ggtitle("Henry") +
+  theme(plot.title = element_text(hjust = 0.5))
+edna_henry
+
+edna_combined <- edna_winona + edna_henry + edna_agnes
+edna_combined
+ggsave("eDNA_umn.jpg", height = 5, width = 7, dpi = 600)
+
+#trapping
+lakesites <- sites %>% 
+  filter(!is.na(lat)) %>%  #don't have coordinates from the DNR so they are removed here - could grab centroid
+  filter(!(trap == "0" | arts == "0")) %>% 
+  st_as_sf(coords = c("lon", "lat"))
+lakesites <- st_set_crs(lakesites, crs)
+
+#getting data into workable format
+lakegeom_trapping <- MNlakes %>% 
+  filter(dow %in% c(lakesites$dow))
+rm(MNlakes)
+lakegeom_trapping <- st_set_crs(lakegeom, crs)
+
+traps_all <- ggplot(data = trap) +
+  geom_sf(data = lakegeom, fill = "aquamarine") +
+  geom_sf(data = trap) +
+  geom_text(data = lake_centroids, aes(x = st_coordinates(geometry)[, 1], y = st_coordinates(geometry)[, 2], label = pw_basin_n),
+            nudge_x = c(0, .002, 0),
+            nudge_y = c(0, .005,0)) +
+  theme_void() +
+  ggtitle("Trapping") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+traps_all
+ggsave("trapping_map.png", bg = "white", height = 7, width = 11, dpi = 600)
+
+traps_winona <- ggplot(data = traps) +
+  geom_sf(data = lakegeom %>% 
+            filter(pw_basin_n == "Winona"), fill = "aquamarine") +
+  geom_sf(data = traps %>% 
+            filter(!(trap == "0" | arts == "0") &
+                     lake_name == "winona")) +
+  theme_void() +
+  ggtitle("Winona") +
+  theme(plot.title = element_text(hjust = 0.5))
+traps_winona
+
+traps_agnes <- ggplot(data = traps) +
+  geom_sf(data = lakegeom %>% 
+            filter(pw_basin_n == "Agnes"), fill = "aquamarine") +
+  geom_sf(data = traps %>% 
+            filter(!(trap == "0" | arts == "0") &
+                     lake_name == "agnes")) +
+  theme_void() +
+  ggtitle("Agnes") +
+  theme(plot.title = element_text(hjust = 0.5))
+traps_agnes
+
+traps_combined <- traps_winona + traps_agnes
+traps_combined
+
+#all sampling labeled by what it was 
+traps <- lakesites %>% 
+  mutate(arts = as.character(arts),
+         trap = as.character(trap)) %>%
+  mutate(type = case_when(arts != "0" & trap != "0" ~ "Baited Funnel + ARTs",
+                          arts == "0" & trap != "0" ~ "Baited Funnel",
+                          arts == "0" & trap == "0" ~ "Only eDNA",
+                          arts != "0" & trap == "0" ~ "ARTs")) %>% 
+  mutate(x = st_coordinates(geometry)[, 1], y = st_coordinates(geometry)[, 2])
+
+all_combined <- traps_all + edna_all
+all_combined
+ggsave("sites_combined.jpg", dpi = 600, width = 6, height = 5)
+```
+
+#table
+```{r}
+table <- sites %>% 
+  mutate(arts = as.character(arts),
+         trap = as.character(trap),
+         traps_or_no = case_when(arts != "0" & trap != "0" ~ "y",
+                                 TRUE ~ "n")) %>% 
+  select(lake_name, dow, lat, lon, edna, traps_or_no) %>% 
+  rename(Lake = lake_name, 
+         DOW = dow,
+         trapping = traps_or_no)
+write_csv(table, "signal_crayfish_sites.csv")
+```
+
+# efforts of sampling
+```{r}
+edna %>% 
+  group_by(lake_name) %>% 
+  count()
+
+edna %>% 
+  group_by(lake_name, month(date)) %>% 
+  count()
+#82 edna sites completed by the UMN or DNR - this does not count community scientist
+
+trap %>% 
+  distinct(site_2, effort, sampling_method) %>% 
+  group_by(sampling_method) %>% 
+  summarise(sum(effort))
+
+trap %>% 
+  group_by(lake_name, sampling_method) %>% 
+  summarise(sum(effort))
+
+trap %>%
+  distinct(site_2, sampling_method, effort) %>% 
+  group_by(site_2) %>% 
+  summarise(art_sites = sum(effort[sampling_method == "art"]),
+            baited_site = sum(effort[sampling_method %in% c("baited_funnel", "baited_minnow")])) %>% 
+  print(n = nrow(.))
+
+trap %>%
+  distinct(site_2, sampling_method, effort, lake_name) %>% 
+  filter(lake_name == "winona") %>% 
+  group_by(site_2) %>% 
+  summarise(art_sites = sum(effort[sampling_method == "art"]),
+            baited_site = sum(effort[sampling_method %in% c("baited_funnel", "baited_minnow")])) %>% 
+  print(n = nrow(.))
+```
+
+# better edna map
+```{r}
+library(ggrepel)
+library(ggspatial)
+library(grid)
+library(tigris)
+
+lakesites <- sites %>% 
+  filter(!is.na(lat)) %>%  #don't have coordinates from the DNR so they are removed here - could grab centroid
+  filter(edna == "y") %>% 
+  st_as_sf(coords = c("lon", "lat")) 
+lakesites <- st_set_crs(lakesites, crs)
+
+#getting data into workable format
+lakegeom_edna <- MNlakes %>% 
+  filter(dow %in% c(lakesites$dow))
+lakegeom_edna <- st_set_crs(lakegeom_edna, crs)
+
+
+lakes <- ggplot() +
+  geom_sf(data = lakegeom_edna, fill = "#4fc3f7") +
+  geom_sf(data = lakesites) +
+  theme_void()
+lakes
+
+lake_centroids <- st_centroid(lakegeom_edna)
+
+#eDNA 
+edna_all <- ggplot(data = lakesites) +
+  geom_sf(data = lakegeom_edna, fill = "#4fc3f7") +
+  geom_sf(data = lakesites %>% 
+            filter(edna == "y")) +
+  geom_text(data = lake_centroids, aes(x = st_coordinates(geometry)[, 1], y =  st_coordinates(geometry)[, 2],label = pw_basin_n)) +
+  theme_void() +
+  ggtitle("eDNA") +
+  theme(plot.title = element_text(hjust = 0.5))
+edna_all
+##################final map###################################
+
+# Create the inset map (or secondary plot)
+create_inset_map <- function() {
+  lakes_bbox <- st_union(lakegeom_edna) %>% 
+    st_bbox()
+  
+  lakes_bbox_df <- data.frame(
+    xmin = lakes_bbox["xmin"],
+    xmax = lakes_bbox["xmax"],
+    ymin = lakes_bbox["ymin"],
+    ymax = lakes_bbox["ymax"]
+  )
+
+  minnesota_map <- ggplot() +
+    geom_sf(data = minnesota_boundary, fill = "lightgray") +
+    geom_sf(data = lakegeom_edna, fill = "transparent", color = "#4fc3f7") +
+    geom_rect(data = lakes_bbox_df, 
+              aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), 
+              fill = NA, color = "red", size = 1) +  # Box around the lakes
+    coord_sf(xlim = c(-97.5, -89.5), ylim = c(43.5, 49.5)) +
+    theme_void() +
+    theme(plot.title = element_text(hjust = 0.5, size = 10, face = "bold"))
+  
+  return(minnesota_map)
+}
+
+# Main plot
+edna_all <- ggplot(data = lakesites) +
+  geom_sf(data = lakegeom_edna, fill = "#4fc3f7") +
+  geom_sf(data = lakesites %>% filter(edna == "y")) +
+  geom_text_repel(data = lake_centroids, 
+                  aes(x = st_coordinates(geometry)[, 1], 
+                      y = st_coordinates(geometry)[, 2], 
+                      label = pw_basin_n),
+                  nudge_y = .01, 
+                  nudge_x = -.01,
+                  segment.color = "gray50",
+                  size = 3.5,
+                  fontface = "bold") +
+  annotation_scale(location = "bl", width_hint = 0.5) +
+  annotation_north_arrow(location = "bl",  
+                         which_north = "true", 
+                         style = north_arrow_fancy_orienteering()) +
+  theme_void() +
+  ggtitle("eDNA Sites") +
+  theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
+
+# Create the inset map
+inset_map <- create_inset_map()
+
+# Combine the main plot and the inset map side by side
+combined_plot <- inset_map + edna_all + plot_layout(ncol = 2)  # Adjust number of columns as needed
+
+# Display the combined plot
+print(combined_plot)
+
+#ggsave("edna_sites.png", bg = "white", width = 11, height = 7, dpi = 600)
+```
+

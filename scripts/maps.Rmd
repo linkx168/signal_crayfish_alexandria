@@ -74,10 +74,8 @@ edna_all <- ggplot(data = lakesites) +
   geom_sf(data = lakegeom_edna, fill = "#4fc3f7") +
   geom_sf(data = lakesites %>% 
             filter(edna == "y")) +
-  geom_text_repel(data = lake_centroids, aes(x = st_coordinates(geometry)[, 1], y =  st_coordinates(geometry)[, 2],label = pw_basin_n),
-                  force_pull = 0.01) +
+  geom_text(data = lake_centroids, aes(x = st_coordinates(geometry)[, 1], y =  st_coordinates(geometry)[, 2],label = pw_basin_n)) +
   theme_void() +
-  ggtitle("eDNA") +
   theme(plot.title = element_text(hjust = 0.5))
 edna_all
 ggsave("edna_sites.png", bg = "white", width = 11, height = 7, dpi = 600)
@@ -237,6 +235,7 @@ library(ggrepel)
 library(ggspatial)
 library(grid)
 library(tigris)
+library(cowplot)
 
 lakesites <- sites %>% 
   filter(!is.na(lat)) %>%  #don't have coordinates from the DNR so they are removed here - could grab centroid
@@ -269,32 +268,6 @@ edna_all <- ggplot(data = lakesites) +
   theme(plot.title = element_text(hjust = 0.5))
 edna_all
 ##################final map###################################
-
-# Create the inset map (or secondary plot)
-create_inset_map <- function() {
-  lakes_bbox <- st_union(lakegeom_edna) %>% 
-    st_bbox()
-  
-  lakes_bbox_df <- data.frame(
-    xmin = lakes_bbox["xmin"],
-    xmax = lakes_bbox["xmax"],
-    ymin = lakes_bbox["ymin"],
-    ymax = lakes_bbox["ymax"]
-  )
-
-  minnesota_map <- ggplot() +
-    geom_sf(data = minnesota_boundary, fill = "lightgray") +
-    geom_sf(data = lakegeom_edna, fill = "transparent", color = "#4fc3f7") +
-    geom_rect(data = lakes_bbox_df, 
-              aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), 
-              fill = NA, color = "red", size = 1) +  # Box around the lakes
-    coord_sf(xlim = c(-97.5, -89.5), ylim = c(43.5, 49.5)) +
-    theme_void() +
-    theme(plot.title = element_text(hjust = 0.5, size = 10, face = "bold"))
-  
-  return(minnesota_map)
-}
-
 # Main plot
 edna_all <- ggplot(data = lakesites) +
   geom_sf(data = lakegeom_edna, fill = "#4fc3f7") +
@@ -303,28 +276,99 @@ edna_all <- ggplot(data = lakesites) +
                   aes(x = st_coordinates(geometry)[, 1], 
                       y = st_coordinates(geometry)[, 2], 
                       label = pw_basin_n),
-                  nudge_y = .01, 
-                  nudge_x = -.01,
+                  nudge_y = 0, 
+                  nudge_x = -.015,
                   segment.color = "gray50",
                   size = 3.5,
                   fontface = "bold") +
-  annotation_scale(location = "bl", width_hint = 0.5) +
+  annotation_scale(location = "bl", 
+                   width_hint = 0.5,
+                   #pad_y = unit(1.1, "in"),
+                   #pad_x = unit(-.5, "in")
+                   ) +
   annotation_north_arrow(location = "bl",  
+                         pad_y = unit(0.5, "in"),
+                         pad_x = unit(.6, "in"),
                          which_north = "true", 
                          style = north_arrow_fancy_orienteering()) +
   theme_void() +
-  ggtitle("eDNA Sites") +
   theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
+edna_all
 
-# Create the inset map
-inset_map <- create_inset_map()
+#inset map 
+mn <- map_data("state") %>% 
+  filter(region == "minnesota") %>% 
+  ggplot() +
+  geom_polygon(aes(x = long, y = lat, group = group), fill = NA, color = "black") +
+  # Add rectangle to indicate lake region
+  annotate("rect", ymin = min(edna$lat, na.rm = T), ymax = max(edna$lat, na.rm = T), xmin = min(edna$lon, na.rm = T), xmax = max(edna$lon, na.rm = T), 
+           color = "red", fill = NA, size = 1) +
+  coord_quickmap() +
+  theme_void() +
+  theme(plot.background = element_rect(color = "black", size = .5))
+mn
 
-# Combine the main plot and the inset map side by side
-combined_plot <- inset_map + edna_all + plot_layout(ncol = 2)  # Adjust number of columns as needed
+#combined
+combined_map <- ggdraw() +
+  draw_plot(edna_all) +  # Main map as the background
+  draw_plot(mn, x = 0.05, y = .7, width = 0.3, height = 0.3)
+combined_map
 
-# Display the combined plot
-print(combined_plot)
+ggsave("edna_sites_inset.png", bg = "white", width = 7, height = 11, dpi = 600)
 
-#ggsave("edna_sites.png", bg = "white", width = 11, height = 7, dpi = 600)
+#only winona 
+edna_winona <- ggplot(data = lakesites) +
+  geom_sf(data = lakegeom_edna %>% 
+            filter(pw_basin_n == "Winona"), fill = "#4fc3f7") +
+  geom_sf(data = lakesites %>% 
+            filter(edna == "y" & lake_name == "winona"),
+          aes(shape = as.character(month(date))), size = 4) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position = c(.6, .2)) +
+  scale_shape_manual("Month", values = c(0, 1, 2, 8, 10), labels = c("October", "April", "June", "July", "August"))
+edna_winona
+
+ggsave("winona_edna.png", bg = "white", width = 11, height = 7, dpi = 600)
+```
+
+# Effort
+```{r}
+sites %>% 
+  filter(!(arts == "0" & trap == "0")) %>% 
+  mutate(trap = case_when(trap == "martin" ~ "0",
+                          TRUE ~ trap),
+         trap = as.numeric(trap),
+         arts = as.numeric(arts)) %>% 
+  summarise(art_sum = sum(arts),
+            trap_sum = sum(trap))
+
+trap %>% 
+  group_by(sampling_method) %>% 
+  summarise(total_effort = sum(effort))
+#difference between sites and traps in amount of effort - check records and fix
+
+trap %>% 
+  summarise(sum = sum(count, na.rm = T))
+
+
+#edna
+edna %>% 
+  group_by(lake_name) %>% 
+  count()
+
+edna %>% 
+  filter(lake_name == "winona" & eDNA == "y") %>% 
+  group_by(month(date)) %>% 
+  count()
+
+diff <- edna %>% 
+  anti_join(sites, by = "site_2")
+
+edna %>% 
+  group_by(site_2) %>% 
+  count() %>% 
+  filter(n >1)
+#collected multipule samples at the sample site twice
 ```
 
